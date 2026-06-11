@@ -1,0 +1,213 @@
+@page "/calendar"
+@inject IDbContextFactory<AppDbContext> Dbf
+@inject IJSRuntime JS
+@implements IDisposable
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <h1 style="font-size:1.6rem;margin:0"><i class="fa-solid fa-calendar-days"></i> Calendar</h1>
+    <button class="btn btn-accent btn-sm" @onclick="NewEvent"><i class="fa-solid fa-plus"></i> New event</button>
+</div>
+
+<div class="row g-3">
+    <div class="col-lg-8">
+        <div class="card-ph">
+            <div id="calendar"></div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card-ph">
+            <h3>@(_editId is null ? "Add event" : "Edit event")</h3>
+            <div class="mb-2"><input class="form-control" placeholder="Title" @bind="_title" /></div>
+            <div class="mb-2">
+                <label class="small muted">Start</label>
+                <input type="datetime-local" class="form-control" @bind="_start" @bind:format="yyyy-MM-ddTHH:mm" />
+            </div>
+            <div class="mb-2">
+                <label class="small muted">End</label>
+                <input type="datetime-local" class="form-control" @bind="_end" @bind:format="yyyy-MM-ddTHH:mm" />
+            </div>
+            <div class="row g-2 mb-2">
+                <div class="col-6"><input class="form-control" placeholder="Category" @bind="_category" /></div>
+                <div class="col-6"><input type="color" class="form-control form-control-color" @bind="_color" /></div>
+            </div>
+            <div class="mb-2">
+                <label class="small muted">Repeat</label>
+                <select class="form-select" @bind="_recurrence">
+                    @foreach (var r in Enum.GetValues<RecurrenceType>())
+                    { <option value="@r">@r</option> }
+                </select>
+            </div>
+            <div class="mb-3">
+                <label class="small muted">Reminder (minutes before)</label>
+                <input type="number" class="form-control" @bind="_reminder" />
+            </div>
+            <div class="d-flex gap-2">
+                <button class="btn btn-accent" @onclick="Save">@(_editId is null ? "Add" : "Save")</button>
+                @if (_editId is not null)
+                {
+                    <button class="btn btn-outline-danger" @onclick="Delete">Delete</button>
+                    <button class="btn btn-outline-secondary" @onclick="NewEvent">Cancel</button>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private DotNetObjectReference<Calendar>? _ref;
+
+    private int? _editId;
+    private string _title = "";
+    private DateTime _start = DateTime.Today.AddHours(9);
+    private DateTime _end = DateTime.Today.AddHours(10);
+    private string _category = "General";
+    private string _color = "#6366f1";
+    private RecurrenceType _recurrence = RecurrenceType.None;
+    private int? _reminder;
+
+    protected override void OnInitialized() => _ref = DotNetObjectReference.Create(this);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) await DrawCalendar();
+    }
+
+    private async Task DrawCalendar()
+    {
+        var occurrences = await BuildOccurrencesAsync();
+        await JS.InvokeVoidAsync("phCalendar.render", "calendar", occurrences, _ref);
+    }
+
+    private async Task<List<object>> BuildOccurrencesAsync()
+    {
+        await using var db = await Dbf.CreateDbContextAsync();
+        var events = await db.Events.Where(e => e.UserId == Local.UserId).ToListAsync();
+
+        var windowStart = DateTime.Today.AddMonths(-1);
+        var windowEnd = DateTime.Today.AddMonths(2);
+        var result = new List<object>();
+
+        foreach (var e in events)
+        {
+            var duration = e.EndTime - e.StartTime;
+            if (e.Recurrence == RecurrenceType.None)
+            {
+                if (e.StartTime <= windowEnd && e.StartTime >= windowStart.AddYears(-5))
+                    result.Add(ToObj(e, e.StartTime, duration, editable: true));
+                continue;
+            }
+
+            var cursor = e.StartTime;
+            int guard = 0;
+            var hardEnd = e.RecurrenceEnd ?? windowEnd;
+            while (cursor <= windowEnd && cursor <= hardEnd && guard++ < 500)
+            {
+                if (cursor >= windowStart)
+                    result.Add(ToObj(e, cursor, duration, editable: false));
+                cursor = e.Recurrence switch
+                {
+                    RecurrenceType.Daily => cursor.AddDays(1),
+                    RecurrenceType.Weekly => cursor.AddDays(7),
+                    RecurrenceType.Monthly => cursor.AddMonths(1),
+                    RecurrenceType.Yearly => cursor.AddYears(1),
+                    _ => cursor.AddYears(100)
+                };
+            }
+        }
+        return result;
+    }
+
+    private static object ToObj(CalendarEvent e, DateTime start, TimeSpan duration, bool editable) => new
+    {
+        id = e.Id.ToString(),
+        title = e.Title,
+        start = start.ToString("s"),
+        end = start.Add(duration).ToString("s"),
+        color = e.Color,
+        editable
+    };
+
+    private void NewEvent()
+    {
+        _editId = null;
+        _title = "";
+        _start = DateTime.Today.AddHours(9);
+        _end = DateTime.Today.AddHours(10);
+        _category = "General";
+        _color = "#6366f1";
+        _recurrence = RecurrenceType.None;
+        _reminder = null;
+    }
+
+    private async Task Save()
+    {
+        if (string.IsNullOrWhiteSpace(_title)) return;
+        await using var db = await Dbf.CreateDbContextAsync();
+        CalendarEvent ev;
+        if (_editId is int id)
+        {
+            ev = await db.Events.FindAsync(id) ?? new CalendarEvent { UserId = Local.UserId };
+            if (ev.Id == 0) db.Events.Add(ev);
+        }
+        else
+        {
+            ev = new CalendarEvent { UserId = Local.UserId };
+            db.Events.Add(ev);
+        }
+        ev.Title = _title.Trim();
+        ev.StartTime = _start;
+        ev.EndTime = _end > _start ? _end : _start.AddHours(1);
+        ev.Category = string.IsNullOrWhiteSpace(_category) ? "General" : _category.Trim();
+        ev.Color = _color;
+        ev.Recurrence = _recurrence;
+        ev.ReminderMinutesBefore = _reminder;
+        await db.SaveChangesAsync();
+        NewEvent();
+        await DrawCalendar();
+    }
+
+    private async Task Delete()
+    {
+        if (_editId is not int id) return;
+        await using var db = await Dbf.CreateDbContextAsync();
+        var ev = await db.Events.FindAsync(id);
+        if (ev is not null) { db.Events.Remove(ev); await db.SaveChangesAsync(); }
+        NewEvent();
+        await DrawCalendar();
+    }
+
+    [JSInvokable]
+    public async Task OnEventClick(string eventId)
+    {
+        if (!int.TryParse(eventId, out var id)) return;
+        await using var db = await Dbf.CreateDbContextAsync();
+        var ev = await db.Events.FindAsync(id);
+        if (ev is null) return;
+        _editId = ev.Id;
+        _title = ev.Title;
+        _start = ev.StartTime;
+        _end = ev.EndTime;
+        _category = ev.Category;
+        _color = ev.Color;
+        _recurrence = ev.Recurrence;
+        _reminder = ev.ReminderMinutesBefore;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public async Task OnEventMove(string eventId, string? startIso, string? endIso)
+    {
+        if (!int.TryParse(eventId, out var id)) return;
+        if (!DateTime.TryParse(startIso, out var start)) return;
+        await using var db = await Dbf.CreateDbContextAsync();
+        var ev = await db.Events.FindAsync(id);
+        if (ev is null) return;
+        var duration = ev.EndTime - ev.StartTime;
+        ev.StartTime = start;
+        ev.EndTime = DateTime.TryParse(endIso, out var end) ? end : start.Add(duration);
+        await db.SaveChangesAsync();
+        await DrawCalendar();
+    }
+
+    public void Dispose() => _ref?.Dispose();
+}

@@ -1,0 +1,158 @@
+@page "/analytics"
+@inject IDbContextFactory<AppDbContext> Dbf
+@inject IJSRuntime JS
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <h1 style="font-size:1.6rem;margin:0"><i class="fa-solid fa-chart-line"></i> Analytics</h1>
+    <div class="btn-group">
+        <button class="btn btn-sm @(_range == "week" ? "btn-accent" : "btn-outline-secondary")" @onclick='() => SetRange("week")'>Week</button>
+        <button class="btn btn-sm @(_range == "month" ? "btn-accent" : "btn-outline-secondary")" @onclick='() => SetRange("month")'>Month</button>
+        <button class="btn btn-sm @(_range == "year" ? "btn-accent" : "btn-outline-secondary")" @onclick='() => SetRange("year")'>Year</button>
+    </div>
+</div>
+
+<div class="widget-grid mb-3">
+    <div class="card-ph widget"><h3>Avg score</h3><div class="stat">@_avgScore<span class="muted small">/100</span></div></div>
+    <div class="card-ph widget"><h3>Task completion</h3><div class="stat">@_taskRate%</div><div class="small muted">@_tasksCompleted of @_tasksTotal</div></div>
+    <div class="card-ph widget"><h3>Avg water</h3><div class="stat">@_avgWater<span class="muted small">ml</span></div></div>
+    <div class="card-ph widget"><h3>Avg calories</h3><div class="stat">@_avgCal<span class="muted small">kcal</span></div></div>
+    <div class="card-ph widget"><h3>Habit rate</h3><div class="stat">@_habitRate%</div></div>
+    <div class="card-ph widget"><h3>Journal</h3><div class="stat">@_journalConsistency%</div><div class="small muted">@_journalDays days</div></div>
+    <div class="card-ph widget"><h3>Focus hours</h3><div class="stat">@_focusHours<span class="muted small">h</span></div></div>
+</div>
+
+<div class="row g-3">
+    <div class="col-lg-6"><div class="card-ph"><h3>Productivity score</h3><div style="height:220px"><canvas id="scoreChart"></canvas></div></div></div>
+    <div class="col-lg-6"><div class="card-ph"><h3>Tasks completed</h3><div style="height:220px"><canvas id="tasksChart"></canvas></div></div></div>
+    <div class="col-lg-6"><div class="card-ph"><h3>Water (ml)</h3><div style="height:220px"><canvas id="waterChart"></canvas></div></div></div>
+    <div class="col-lg-6"><div class="card-ph"><h3>Calories</h3><div style="height:220px"><canvas id="calChart"></canvas></div></div></div>
+    <div class="col-12"><div class="card-ph"><h3>Habit completion rate (%)</h3><div style="height:220px"><canvas id="habitChart"></canvas></div></div></div>
+</div>
+
+@code {
+    private string _range = "week";
+    private int _days = 7;
+
+    private List<string> _labels = [];
+    private List<int> _scoreSeries = [];
+    private List<int> _waterSeries = [];
+    private List<int> _calSeries = [];
+    private List<int> _tasksSeries = [];
+    private List<double> _habitSeries = [];
+
+    private int _avgScore, _taskRate, _tasksCompleted, _tasksTotal, _avgWater, _avgCal, _habitRate, _journalDays, _journalConsistency;
+    private double _focusHours;
+
+    protected override async Task OnInitializedAsync() => await Compute();
+
+    private async Task SetRange(string r)
+    {
+        _range = r;
+        await Compute();
+        await DrawCharts();
+    }
+
+    private async Task Compute()
+    {
+        _days = _range switch { "month" => 30, "year" => 365, _ => 7 };
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var start = today.AddDays(-(_days - 1));
+        var startDt = start.ToDateTime(TimeOnly.MinValue);
+
+        await using var db = await Dbf.CreateDbContextAsync();
+
+        var scores = await db.ProductivityScores.Where(s => s.UserId == Local.UserId && s.Date >= start)
+            .ToDictionaryAsync(s => s.Date, s => s.Score);
+
+        var water = (await db.WaterEntries.Where(w => w.UserId == Local.UserId && w.LoggedAt >= startDt).ToListAsync())
+            .GroupBy(w => DateOnly.FromDateTime(w.LoggedAt)).ToDictionary(g => g.Key, g => g.Sum(w => w.AmountMl));
+
+        var meals = await db.Meals.Include(m => m.Items).Where(m => m.UserId == Local.UserId && m.Date >= start).ToListAsync();
+        var calsByDay = meals.GroupBy(m => m.Date).ToDictionary(g => g.Key, g => g.Sum(m => m.Items.Sum(i => i.Calories)));
+
+        var doneTasks = await db.Tasks.Where(t => t.UserId == Local.UserId && t.CompletedAt != null && t.CompletedAt >= startDt).ToListAsync();
+        var doneByDay = doneTasks.GroupBy(t => DateOnly.FromDateTime(t.CompletedAt!.Value)).ToDictionary(g => g.Key, g => g.Count());
+
+        var habits = await db.Habits.Where(h => h.UserId == Local.UserId && !h.IsArchived).ToListAsync();
+        var habitIds = habits.Select(h => h.Id).ToList();
+        var logs = await db.HabitLogs.Where(l => habitIds.Contains(l.HabitId) && l.Date >= start).ToListAsync();
+        var logsByDay = logs.GroupBy(l => l.Date).ToDictionary(g => g.Key, g => g.Count());
+
+        _labels = []; _scoreSeries = []; _waterSeries = []; _calSeries = []; _tasksSeries = []; _habitSeries = [];
+
+        if (_range == "year")
+        {
+            for (var d = start; d <= today; d = d.AddDays(7))
+            {
+                var end = d.AddDays(6) > today ? today : d.AddDays(6);
+                _labels.Add(d.ToString("MMM d"));
+                _scoreSeries.Add((int)RangeAvg(scores, d, end));
+                _waterSeries.Add((int)RangeAvg(water, d, end));
+                _calSeries.Add((int)RangeAvg(calsByDay, d, end));
+                _tasksSeries.Add(RangeSum(doneByDay, d, end));
+                var possible = habits.Count * (end.DayNumber - d.DayNumber + 1);
+                _habitSeries.Add(possible == 0 ? 0 : Math.Round(100.0 * RangeSum(logsByDay, d, end) / possible, 1));
+            }
+        }
+        else
+        {
+            for (var d = start; d <= today; d = d.AddDays(1))
+            {
+                _labels.Add(d.ToString(_range == "week" ? "ddd" : "MMM d"));
+                _scoreSeries.Add(scores.GetValueOrDefault(d));
+                _waterSeries.Add(water.GetValueOrDefault(d));
+                _calSeries.Add(calsByDay.GetValueOrDefault(d));
+                _tasksSeries.Add(doneByDay.GetValueOrDefault(d));
+                _habitSeries.Add(habits.Count == 0 ? 0 : Math.Round(100.0 * logsByDay.GetValueOrDefault(d) / habits.Count, 1));
+            }
+        }
+
+        _tasksCompleted = doneTasks.Count;
+        var openTasks = await db.Tasks.CountAsync(t => t.UserId == Local.UserId && t.State != TaskState.Done);
+        _tasksTotal = _tasksCompleted + openTasks;
+        _taskRate = _tasksTotal == 0 ? 0 : (int)Math.Round(100.0 * _tasksCompleted / _tasksTotal);
+
+        _avgWater = _waterSeries.Count == 0 ? 0 : (int)Math.Round(_waterSeries.Average());
+        var calDays = _calSeries.Where(c => c > 0).ToList();
+        _avgCal = calDays.Count == 0 ? 0 : (int)Math.Round(calDays.Average());
+
+        var possibleAll = habits.Count * _days;
+        _habitRate = possibleAll == 0 ? 0 : (int)Math.Round(100.0 * logs.Count / possibleAll);
+
+        _journalDays = await db.JournalEntries.CountAsync(j => j.UserId == Local.UserId && j.Date >= start);
+        _journalConsistency = (int)Math.Round(100.0 * _journalDays / _days);
+
+        _focusHours = Math.Round(doneTasks.Where(t => t.IsFocusTask).Sum(t => t.EstimatedMinutes ?? 0) / 60.0, 1);
+
+        var scoreVals = scores.Values.ToList();
+        _avgScore = scoreVals.Count == 0 ? 0 : (int)Math.Round(scoreVals.Average());
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) await DrawCharts();
+    }
+
+    private async Task DrawCharts()
+    {
+        await JS.InvokeVoidAsync("phCharts.line", "scoreChart", _labels, _scoreSeries, "#5b5bd6");
+        await JS.InvokeVoidAsync("phCharts.bar", "tasksChart", _labels, _tasksSeries, "#10b981");
+        await JS.InvokeVoidAsync("phCharts.line", "waterChart", _labels, _waterSeries, "#38bdf8");
+        await JS.InvokeVoidAsync("phCharts.bar", "calChart", _labels, _calSeries, "#f59e0b");
+        await JS.InvokeVoidAsync("phCharts.line", "habitChart", _labels, _habitSeries, "#a855f7");
+    }
+
+    private static double RangeAvg(Dictionary<DateOnly, int> map, DateOnly a, DateOnly b)
+    {
+        var vals = new List<int>();
+        for (var d = a; d <= b; d = d.AddDays(1)) vals.Add(map.GetValueOrDefault(d));
+        return vals.Count == 0 ? 0 : vals.Average();
+    }
+
+    private static int RangeSum(Dictionary<DateOnly, int> map, DateOnly a, DateOnly b)
+    {
+        var sum = 0;
+        for (var d = a; d <= b; d = d.AddDays(1)) sum += map.GetValueOrDefault(d);
+        return sum;
+    }
+}

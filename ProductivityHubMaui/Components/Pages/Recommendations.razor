@@ -1,0 +1,47 @@
+@page "/recommendations"
+@inject IRecommendationService Recs
+
+<h1 style="font-size:1.6rem"><i class="fa-solid fa-lightbulb"></i> For You</h1>
+<p class="muted">Personalized nudges based on your recent activity.</p>
+
+@if (_recs.Count == 0)
+{
+    <div class="card-ph"><p class="muted mb-0">Loading…</p></div>
+}
+else
+{
+    @foreach (var group in _recs.GroupBy(r => r.Kind))
+    {
+        <h3 class="mt-3" style="font-size:1.05rem">@Heading(group.Key)</h3>
+        <div class="widget-grid">
+            @foreach (var r in group)
+            {
+                <div class="card-ph">
+                    <div class="rec-card">
+                        <div class="rec-icon"><i class="fa-solid @r.Icon"></i></div>
+                        <div>
+                            <b>@r.Title</b>
+                            <div class="small muted">@r.Detail</div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+}
+
+@code {
+    private List<Recommendation> _recs = [];
+
+    protected override async Task OnInitializedAsync()
+        => _recs = await Recs.GetAsync(Local.UserId);
+
+    private static string Heading(string kind) => kind switch
+    {
+        "Challenge" => "🔥 Challenges",
+        "Video" => "🎬 Watch",
+        "Article" => "📰 Read",
+        "Quote" => "💬 Quote",
+        _ => kind
+    };
+}

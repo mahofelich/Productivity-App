@@ -1,0 +1,171 @@
+@page "/journal"
+@inject IDbContextFactory<AppDbContext> Dbf
+@inject IGamificationService Gamify
+@inject IStreakService Streaks
+@inject IJSRuntime JS
+
+<h1 style="font-size:1.6rem"><i class="fa-solid fa-book"></i> Journal &amp; Reflection</h1>
+
+<div class="row g-3">
+    <div class="col-lg-6">
+        <div class="card-ph mb-3">
+            <h3>@(_isMorning ? "Morning intentions" : "Evening reflection")</h3>
+            @foreach (var p in _prompts)
+            {
+                <div class="mb-2">
+                    <label class="small muted">@p.Text</label>
+                    <textarea class="form-control" rows="2"
+                              value="@_answers.GetValueOrDefault(p.Id)"
+                              @onchange="e => SaveAnswer(p.Id, e.Value?.ToString() ?? string.Empty)"></textarea>
+                </div>
+            }
+        </div>
+
+        <div class="card-ph">
+            <h3>Today's entry</h3>
+            <div class="d-flex gap-2 mb-2">
+                @for (int i = 1; i <= 5; i++)
+                {
+                    var mood = i;
+                    <button class="btn @(_mood == mood ? "btn-accent" : "btn-outline-secondary")" @onclick="() => _mood = mood">@MoodEmoji(mood)</button>
+                }
+            </div>
+            <textarea class="form-control mb-2" rows="5" placeholder="How did today go?" @bind="_content"></textarea>
+            <button class="btn btn-accent" @onclick="SaveEntry">Save entry</button>
+            @if (_saved) { <span class="small text-success ms-2">Saved ✓</span> }
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="card-ph mb-3">
+            <h3>Mood — last 30 days</h3>
+            <div style="height:200px"><canvas id="moodChart"></canvas></div>
+        </div>
+        <div class="card-ph">
+            <h3>Recent entries</h3>
+            @if (_recent.Count == 0)
+            {
+                <p class="muted mb-0">No entries yet.</p>
+            }
+            else
+            {
+                @foreach (var e in _recent)
+                {
+                    <div class="py-2" style="border-bottom:1px solid var(--border)">
+                        <div class="d-flex justify-content-between">
+                            <b>@e.Date.ToString("ddd, MMM d")</b>
+                            <span>@MoodEmoji(e.Mood)</span>
+                        </div>
+                        <div class="small muted">@(e.Content.Length > 120 ? e.Content[..120] + "…" : e.Content)</div>
+                    </div>
+                }
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private bool _isMorning;
+    private List<ReflectionPrompt> _prompts = [];
+    private readonly Dictionary<int, string> _answers = [];
+    private string _content = "";
+    private int _mood = 3;
+    private bool _saved;
+    private List<JournalEntry> _recent = [];
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        _isMorning = DateTime.Now.Hour < 15;
+        var time = _isMorning ? PromptTime.Morning : PromptTime.Evening;
+        var today = DateOnly.FromDateTime(DateTime.Today);
+
+        await using var db = await Dbf.CreateDbContextAsync();
+        _prompts = await db.ReflectionPrompts.Where(p => p.Time == time).OrderBy(p => p.SortOrder).ToListAsync();
+
+        _answers.Clear();
+        var responses = await db.ReflectionResponses
+            .Where(r => r.UserId == Local.UserId && r.Date == today).ToListAsync();
+        foreach (var r in responses) _answers[r.PromptId] = r.Answer;
+
+        var entry = await db.JournalEntries.FirstOrDefaultAsync(j => j.UserId == Local.UserId && j.Date == today);
+        if (entry is not null) { _content = entry.Content; _mood = entry.Mood; }
+
+        _recent = await db.JournalEntries.Where(j => j.UserId == Local.UserId)
+            .OrderByDescending(j => j.Date).Take(8).ToListAsync();
+    }
+
+    private async Task SaveAnswer(int promptId, string answer)
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        await using var db = await Dbf.CreateDbContextAsync();
+        var r = await db.ReflectionResponses.FirstOrDefaultAsync(x => x.UserId == Local.UserId && x.Date == today && x.PromptId == promptId);
+        if (r is null)
+            db.ReflectionResponses.Add(new ReflectionResponse { UserId = Local.UserId, Date = today, PromptId = promptId, Answer = answer });
+        else
+            r.Answer = answer;
+        await db.SaveChangesAsync();
+        _answers[promptId] = answer;
+    }
+
+    private async Task SaveEntry()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        await using var db = await Dbf.CreateDbContextAsync();
+        var entry = await db.JournalEntries.FirstOrDefaultAsync(j => j.UserId == Local.UserId && j.Date == today);
+        var isNew = entry is null;
+        if (entry is null)
+        {
+            entry = new JournalEntry { UserId = Local.UserId, Date = today };
+            db.JournalEntries.Add(entry);
+        }
+        entry.Content = _content;
+        entry.Mood = _mood;
+        await db.SaveChangesAsync();
+
+        if (isNew)
+        {
+            await Gamify.AwardXpAsync(Local.UserId, 15);
+            await Gamify.CheckAchievementsAsync(Local.UserId);
+        }
+        _saved = true;
+        await Load();
+        await DrawChart();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) await DrawChart();
+    }
+
+    private async Task DrawChart()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        await using var db = await Dbf.CreateDbContextAsync();
+        var entries = await db.JournalEntries
+            .Where(j => j.UserId == Local.UserId && j.Date >= today.AddDays(-29))
+            .ToDictionaryAsync(j => j.Date, j => j.Mood);
+
+        var labels = new List<string>();
+        var data = new List<int?>();
+        for (int i = 29; i >= 0; i--)
+        {
+            var day = today.AddDays(-i);
+            labels.Add(day.ToString("M/d"));
+            data.Add(entries.TryGetValue(day, out var m) ? m : null);
+        }
+        await JS.InvokeVoidAsync("phCharts.render", "moodChart", "line", labels,
+            new[] { new { data, borderColor = "#a855f7", backgroundColor = "#a855f733", tension = 0.35, spanGaps = true, pointRadius = 3 } },
+            new { scales = new { y = new { min = 1, max = 5 } } });
+    }
+
+    private static string MoodEmoji(int m) => m switch
+    {
+        1 => "😞",
+        2 => "🙁",
+        3 => "😐",
+        4 => "🙂",
+        _ => "😄"
+    };
+}

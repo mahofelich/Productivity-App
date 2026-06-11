@@ -1,0 +1,219 @@
+@page "/tasks"
+@inject IDbContextFactory<AppDbContext> Dbf
+@inject IGamificationService Gamify
+@inject IJSRuntime JS
+@implements IDisposable
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <h1 style="font-size:1.6rem;margin:0"><i class="fa-solid fa-list-check"></i> Tasks</h1>
+    <div class="btn-group">
+        <button class="btn btn-sm @(_view == "board" ? "btn-accent" : "btn-outline-secondary")" @onclick='() => _view = "board"'>Board</button>
+        <button class="btn btn-sm @(_view == "list" ? "btn-accent" : "btn-outline-secondary")" @onclick='() => _view = "list"'>List</button>
+        <button class="btn btn-sm @(_view == "matrix" ? "btn-accent" : "btn-outline-secondary")" @onclick='() => _view = "matrix"'>Matrix</button>
+    </div>
+</div>
+
+<div class="card-ph mb-3">
+    <div class="row g-2 align-items-end">
+        <div class="col-md-4"><input class="form-control" placeholder="New task…" @bind="_title" @onkeydown="OnKey" /></div>
+        <div class="col-6 col-md-2">
+            <select class="form-select" @bind="_priority">
+                @foreach (var p in Enum.GetValues<Priority>())
+                { <option value="@p">@p</option> }
+            </select>
+        </div>
+        <div class="col-6 col-md-2"><input class="form-control" placeholder="Category" @bind="_category" /></div>
+        <div class="col-6 col-md-2"><input type="date" class="form-control" @bind="_due" /></div>
+        <div class="col-6 col-md-2"><button class="btn btn-accent w-100" @onclick="Add">Add</button></div>
+    </div>
+</div>
+
+@if (_error is not null)
+{
+    <div class="alert alert-warning py-2">@_error</div>
+}
+
+@if (_view == "board")
+{
+    <div class="kanban">
+        @foreach (var (state, label) in _columns)
+        {
+            <div class="kanban-col">
+                <h4>@label <span class="muted">(@_tasks.Count(t => t.State == state))</span></h4>
+                <div class="col-body" data-state="@((int)state)">
+                    @foreach (var t in _tasks.Where(t => t.State == state).OrderByDescending(t => t.Priority))
+                    {
+                        <div class="task-card" data-task-id="@t.Id">
+                            <div>@t.Title</div>
+                            <div class="badges">
+                                <span class="pill p-@t.Priority">@t.Priority</span>
+                                @if (!string.IsNullOrWhiteSpace(t.Category)) { <span class="pill">@t.Category</span> }
+                                @if (t.IsFocusTask) { <span class="pill"><i class="fa-solid fa-bullseye"></i></span> }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+else if (_view == "list")
+{
+    <div class="card-ph">
+        <table class="table align-middle mb-0">
+            <tbody>
+                @foreach (var t in _tasks.OrderByDescending(t => t.Priority))
+                {
+                    <tr>
+                        <td style="width:36px">
+                            <input type="checkbox" class="form-check-input" checked="@(t.State == TaskState.Done)" @onchange="() => ToggleDone(t)" />
+                        </td>
+                        <td class="@(t.State == TaskState.Done ? "text-decoration-line-through muted" : "")">@t.Title</td>
+                        <td><span class="pill p-@t.Priority">@t.Priority</span></td>
+                        <td class="muted small">@(t.DueDate?.ToString("MMM d") ?? "")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+else
+{
+    <div class="eisenhower">
+        @foreach (var q in _quadrants)
+        {
+            <div class="card-ph">
+                <h3>@q.Title</h3>
+                @foreach (var t in _tasks.Where(q.Match))
+                {
+                    <div class="d-flex justify-content-between py-1">
+                        <span>@t.Title</span>
+                        <span class="pill p-@t.Priority">@t.Priority</span>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private string _view = "board";
+    private List<TaskItem> _tasks = [];
+    private string _title = "";
+    private Priority _priority = Priority.Medium;
+    private string _category = "General";
+    private DateTime? _due;
+    private string? _error;
+    private DotNetObjectReference<Tasks>? _ref;
+
+    private readonly (TaskState State, string Label)[] _columns =
+    [
+        (TaskState.Todo, "To do"),
+        (TaskState.InProgress, "In progress"),
+        (TaskState.Done, "Done"),
+    ];
+
+    private (string Title, Func<TaskItem, bool> Match)[] _quadrants =
+    [
+        ("Important & Urgent", t => t.IsImportant && t.IsUrgent),
+        ("Important, Not Urgent", t => t.IsImportant && !t.IsUrgent),
+        ("Urgent, Not Important", t => !t.IsImportant && t.IsUrgent),
+        ("Neither", t => !t.IsImportant && !t.IsUrgent),
+    ];
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        await using var db = await Dbf.CreateDbContextAsync();
+        _tasks = await db.Tasks.Where(t => t.UserId == Local.UserId && t.ParentTaskId == null)
+            .ToListAsync();
+    }
+
+    private async Task OnKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await Add();
+    }
+
+    private async Task Add()
+    {
+        if (string.IsNullOrWhiteSpace(_title)) return;
+        await using var db = await Dbf.CreateDbContextAsync();
+        db.Tasks.Add(new TaskItem
+        {
+            UserId = Local.UserId,
+            Title = _title.Trim(),
+            Priority = _priority,
+            Category = string.IsNullOrWhiteSpace(_category) ? "General" : _category.Trim(),
+            DueDate = _due,
+            IsImportant = _priority >= Priority.High,
+            IsUrgent = _priority == Priority.Urgent
+        });
+        await db.SaveChangesAsync();
+        _title = "";
+        _due = null;
+        await Load();
+    }
+
+    private async Task ToggleDone(TaskItem t)
+    {
+        await using var db = await Dbf.CreateDbContextAsync();
+        var task = await db.Tasks.FindAsync(t.Id);
+        if (task is null) return;
+        if (task.State == TaskState.Done) { task.State = TaskState.Todo; task.CompletedAt = null; }
+        else { task.State = TaskState.Done; task.CompletedAt = DateTime.Now; }
+        await db.SaveChangesAsync();
+        if (task.State == TaskState.Done)
+        {
+            await Gamify.AwardXpAsync(Local.UserId, 10);
+            await Gamify.CheckAchievementsAsync(Local.UserId);
+        }
+        await Load();
+    }
+
+    [JSInvokable]
+    public async Task OnTaskMoved(int taskId, int newState)
+    {
+        _error = null;
+        await using var db = await Dbf.CreateDbContextAsync();
+        var task = await db.Tasks.FindAsync(taskId);
+        if (task is null) return;
+        var target = (TaskState)newState;
+
+        if (target == TaskState.Done && task.DependsOnTaskId is int depId)
+        {
+            var dep = await db.Tasks.FindAsync(depId);
+            if (dep is not null && dep.State != TaskState.Done)
+            {
+                _error = $"\"{task.Title}\" is blocked by \"{dep.Title}\" — finish that first.";
+                await Load();
+                StateHasChanged();
+                return;
+            }
+        }
+
+        var wasDone = task.State == TaskState.Done;
+        task.State = target;
+        task.CompletedAt = target == TaskState.Done ? DateTime.Now : null;
+        await db.SaveChangesAsync();
+
+        if (target == TaskState.Done && !wasDone)
+        {
+            await Gamify.AwardXpAsync(Local.UserId, 10);
+            await Gamify.CheckAchievementsAsync(Local.UserId);
+        }
+        await Load();
+        StateHasChanged();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_view == "board")
+        {
+            _ref ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("phKanban.init", _ref);
+        }
+    }
+
+    public void Dispose() => _ref?.Dispose();
+}

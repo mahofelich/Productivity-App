@@ -1,0 +1,122 @@
+@page "/habits"
+@inject IDbContextFactory<AppDbContext> Dbf
+@inject IStreakService Streaks
+@inject IGamificationService Gamify
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <h1 style="font-size:1.6rem;margin:0"><i class="fa-solid fa-repeat"></i> Habits</h1>
+</div>
+
+<div class="card-ph mb-3">
+    <div class="row g-2 align-items-end">
+        <div class="col-md-6"><input class="form-control" placeholder="New habit (e.g. Read 20 min)" @bind="_name" @onkeydown="OnKey" /></div>
+        <div class="col-6 col-md-3">
+            <input type="color" class="form-control form-control-color" @bind="_color" title="Colour" />
+        </div>
+        <div class="col-6 col-md-3"><button class="btn btn-accent w-100" @onclick="Add">Add habit</button></div>
+    </div>
+</div>
+
+@if (_habits.Count == 0)
+{
+    <div class="card-ph"><p class="muted mb-0">No habits yet. Add one above to start a streak.</p></div>
+}
+
+@foreach (var h in _habits)
+{
+    var info = _info[h.Id];
+    <div class="card-ph mb-3">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <h3 class="mb-0"><i class="fa-solid @h.Icon" style="color:@h.Color"></i> @h.Name</h3>
+            <div class="d-flex gap-3 align-items-center">
+                <span class="small muted"><i class="fa-solid fa-fire streak-flame"></i> @info.Streak day</span>
+                <span class="small muted">@info.Week/7 wk</span>
+                <span class="small muted">@info.Month/30 mo</span>
+                <button class="btn btn-sm @(info.DoneToday ? "btn-accent" : "btn-outline-secondary")" @onclick="() => Toggle(h)">
+                    @(info.DoneToday ? "Done today" : "Mark done")
+                </button>
+            </div>
+        </div>
+        <div class="heatmap mt-3">
+            @foreach (var day in info.Heatmap)
+            {
+                <div class="cell @(day.On ? "on" : "")"
+                     style="@(day.On ? $"background:{h.Color}" : "")"
+                     title="@day.Date.ToString("MMM d")"></div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private List<Habit> _habits = [];
+    private readonly Dictionary<int, HabitInfo> _info = [];
+    private string _name = "";
+    private string _color = "#10b981";
+
+    private record DayCell(DateOnly Date, bool On);
+    private record HabitInfo(int Streak, int Week, int Month, bool DoneToday, List<DayCell> Heatmap);
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        await using var db = await Dbf.CreateDbContextAsync();
+        _habits = await db.Habits.Where(h => h.UserId == Local.UserId && !h.IsArchived).ToListAsync();
+        _info.Clear();
+
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        foreach (var h in _habits)
+        {
+            var logs = await db.HabitLogs.Where(l => l.HabitId == h.Id).Select(l => l.Date).ToListAsync();
+            var set = logs.ToHashSet();
+            var streak = await Streaks.HabitStreakAsync(h.Id);
+            var week = Enumerable.Range(0, 7).Count(i => set.Contains(today.AddDays(-i)));
+            var month = Enumerable.Range(0, 30).Count(i => set.Contains(today.AddDays(-i)));
+            var doneToday = set.Contains(today);
+
+            var cells = new List<DayCell>();
+            for (int i = 181; i >= 0; i--)
+            {
+                var day = today.AddDays(-i);
+                cells.Add(new DayCell(day, set.Contains(day)));
+            }
+            _info[h.Id] = new HabitInfo(streak, week, month, doneToday, cells);
+        }
+    }
+
+    private async Task OnKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await Add();
+    }
+
+    private async Task Add()
+    {
+        if (string.IsNullOrWhiteSpace(_name)) return;
+        await using var db = await Dbf.CreateDbContextAsync();
+        db.Habits.Add(new Habit { UserId = Local.UserId, Name = _name.Trim(), Color = _color });
+        await db.SaveChangesAsync();
+        _name = "";
+        await Load();
+    }
+
+    private async Task Toggle(Habit h)
+    {
+        await using var db = await Dbf.CreateDbContextAsync();
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var log = await db.HabitLogs.FirstOrDefaultAsync(l => l.HabitId == h.Id && l.Date == today);
+        if (log is null)
+        {
+            db.HabitLogs.Add(new HabitLog { HabitId = h.Id, Date = today });
+            await db.SaveChangesAsync();
+            await Gamify.AwardXpAsync(Local.UserId, 5);
+            await Gamify.CheckAchievementsAsync(Local.UserId);
+        }
+        else
+        {
+            db.HabitLogs.Remove(log);
+            await db.SaveChangesAsync();
+        }
+        await Load();
+    }
+}

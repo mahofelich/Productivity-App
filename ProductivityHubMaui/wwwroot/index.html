@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>ProductivityHub</title>
+    <base href="/" />
+
+    <!-- Styling (loaded from CDN; vendor locally for full offline use) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/site.css" />
+</head>
+
+<body>
+    <div id="app">
+        <div style="display:grid;place-items:center;height:100vh;font-family:sans-serif;color:#888">
+            Loading ProductivityHub…
+        </div>
+    </div>
+
+    <div id="blazor-error-ui" style="display:none;position:fixed;bottom:0;left:0;right:0;background:#b91c1c;color:#fff;padding:10px 16px;z-index:9999">
+        An unexpected error occurred.
+        <a href="" class="reload" style="color:#fff;text-decoration:underline">Reload</a>
+        <a class="dismiss" style="float:right;cursor:pointer">🗙</a>
+    </div>
+
+    <!-- Charts / calendar / drag / markdown (CDN) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+
+    <script src="js/app.js"></script>
+    <script src="_framework/blazor.webview.js" autostart="false"></script>
+    <script>
+        Blazor.start();
+    </script>
+</body>
+</html>

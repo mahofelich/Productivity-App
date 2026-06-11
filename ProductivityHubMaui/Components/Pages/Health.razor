@@ -1,0 +1,214 @@
+@page "/health"
+@inject IDbContextFactory<AppDbContext> Dbf
+@inject IGamificationService Gamify
+@inject IStreakService Streaks
+@inject IJSRuntime JS
+
+<h1 style="font-size:1.6rem"><i class="fa-solid fa-heart-pulse"></i> Health</h1>
+
+<div class="row g-3">
+    <div class="col-lg-4">
+        <div class="card-ph text-center mb-3">
+            <h3 class="justify-content-center"><i class="fa-solid fa-droplet" style="color:var(--water)"></i> Water</h3>
+            <div class="bottle"><div class="fill" style="height:@WaterPct%"></div></div>
+            <p class="mt-2 mb-1"><b>@_water</b> <span class="muted">/ @_waterGoal ml</span></p>
+            <p class="small muted"><i class="fa-solid fa-fire streak-flame"></i> @_waterStreak day streak</p>
+            <div class="d-flex gap-2 justify-content-center flex-wrap">
+                <button class="btn btn-sm btn-outline-secondary" @onclick="() => AddWater(150)">Glass 150</button>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="() => AddWater(250)">Cup 250</button>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="() => AddWater(500)">Bottle 500</button>
+            </div>
+            <div class="d-flex gap-2 justify-content-center mt-2">
+                <input type="number" class="form-control form-control-sm" style="max-width:110px" placeholder="Custom ml" @bind="_customMl" />
+                <button class="btn btn-sm btn-accent" @onclick="() => AddWater(_customMl)">Add</button>
+            </div>
+        </div>
+        <div class="card-ph">
+            <h3>Water — last 7 days</h3>
+            <div style="height:180px"><canvas id="waterChart"></canvas></div>
+        </div>
+    </div>
+
+    <div class="col-lg-8">
+        <div class="card-ph mb-3">
+            <h3><i class="fa-solid fa-fire" style="color:var(--warn)"></i> Calories &amp; macros today</h3>
+            <div class="row text-center">
+                @foreach (var m in Macros)
+                {
+                    <div class="col-6 col-md-3 mb-2">
+                        <b>@m.Val</b> <span class="muted small">/ @m.Goal</span>
+                        <div class="progress-thin mt-1"><div style="width:@(Math.Min(100, m.Val * 100 / Math.Max(1, m.Goal)))%; background:@m.Color"></div></div>
+                        <span class="small muted">@m.Label</span>
+                    </div>
+                }
+            </div>
+            <div class="row mt-2">
+                <div class="col-md-5"><div style="height:180px"><canvas id="macroChart"></canvas></div></div>
+                <div class="col-md-7">
+                    <div class="row g-2 align-items-end">
+                        <div class="col-12"><input class="form-control" placeholder="Food name" @bind="_food" /></div>
+                        <div class="col-3"><input type="number" class="form-control" placeholder="kcal" @bind="_cal" /></div>
+                        <div class="col-3"><input type="number" class="form-control" placeholder="P" @bind="_p" /></div>
+                        <div class="col-3"><input type="number" class="form-control" placeholder="C" @bind="_c" /></div>
+                        <div class="col-3"><input type="number" class="form-control" placeholder="F" @bind="_f" /></div>
+                        <div class="col-7">
+                            <select class="form-select" @bind="_mealType">
+                                @foreach (var mt in Enum.GetValues<MealType>())
+                                { <option value="@mt">@mt</option> }
+                            </select>
+                        </div>
+                        <div class="col-5"><button class="btn btn-accent w-100" @onclick="AddFood">Log food</button></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card-ph">
+            <h3>Today's log</h3>
+            @if (_items.Count == 0)
+            {
+                <p class="muted mb-0">No food logged yet today.</p>
+            }
+            else
+            {
+                <table class="table mb-0">
+                    <tbody>
+                        @foreach (var it in _items)
+                        {
+                            <tr>
+                                <td>@it.Name</td>
+                                <td class="muted small">@it.Calories kcal · @it.ProteinG/@it.CarbsG/@it.FatG</td>
+                                <td class="text-end">
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => DeleteFood(it.Id)"><i class="fa-solid fa-trash"></i></button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private int _water, _waterGoal = 2500, _waterStreak, _customMl = 200;
+    private int _calGoal = 2200, _pGoal = 120, _cGoal = 250, _fGoal = 70;
+    private int _calc;                 // total calories logged today
+    private double _protein, _carbs, _fat;
+    private int[] _water7 = new int[7];
+    private string[] _days7 = new string[7];
+    private List<FoodEntry> _items = [];
+
+    // food form
+    private string _food = "";
+    private int _cal, _p, _c, _f;
+    private MealType _mealType = MealType.Lunch;
+
+    private int WaterPct => Math.Min(100, _water * 100 / Math.Max(1, _waterGoal));
+
+    private (string Label, int Val, int Goal, string Color)[] Macros => new[]
+    {
+        ("Calories", _calc, _calGoal, "var(--warn)"),
+        ("Protein g", (int)_protein, _pGoal, "#ef4444"),
+        ("Carbs g", (int)_carbs, _cGoal, "#3b82f6"),
+        ("Fat g", (int)_fat, _fGoal, "#a855f7"),
+    };
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        await using var db = await Dbf.CreateDbContextAsync();
+        var user = await db.Users.FindAsync(Local.UserId);
+        _waterGoal = user?.WaterGoalMl ?? 2500;
+        _calGoal = user?.CalorieGoal ?? 2200;
+        _pGoal = user?.ProteinGoalG ?? 120;
+        _cGoal = user?.CarbGoalG ?? 250;
+        _fGoal = user?.FatGoalG ?? 70;
+
+        var today = DateTime.Today;
+        _water = await db.WaterEntries.Where(w => w.UserId == Local.UserId && w.LoggedAt >= today)
+            .SumAsync(w => (int?)w.AmountMl) ?? 0;
+        _waterStreak = await Streaks.WaterStreakAsync(Local.UserId, _waterGoal);
+
+        for (int i = 6; i >= 0; i--)
+        {
+            var day = today.AddDays(-i);
+            var total = await db.WaterEntries.Where(w => w.UserId == Local.UserId && w.LoggedAt >= day && w.LoggedAt < day.AddDays(1))
+                .SumAsync(w => (int?)w.AmountMl) ?? 0;
+            _water7[6 - i] = total;
+            _days7[6 - i] = day.ToString("ddd");
+        }
+
+        var todayOnly = DateOnly.FromDateTime(today);
+        _items = await db.FoodEntries
+            .Where(fe => fe.Meal!.UserId == Local.UserId && fe.Meal.Date == todayOnly)
+            .ToListAsync();
+        _calc = _items.Sum(i => i.Calories);
+        _protein = _items.Sum(i => i.ProteinG);
+        _carbs = _items.Sum(i => i.CarbsG);
+        _fat = _items.Sum(i => i.FatG);
+    }
+
+    private async Task AddWater(int ml)
+    {
+        if (ml <= 0) return;
+        await using var db = await Dbf.CreateDbContextAsync();
+        db.WaterEntries.Add(new WaterEntry { UserId = Local.UserId, AmountMl = ml });
+        await db.SaveChangesAsync();
+        await Gamify.AwardXpAsync(Local.UserId, 5);
+        await Gamify.CheckAchievementsAsync(Local.UserId);
+        await Load();
+        await DrawCharts();
+    }
+
+    private async Task AddFood()
+    {
+        if (string.IsNullOrWhiteSpace(_food)) return;
+        await using var db = await Dbf.CreateDbContextAsync();
+        var todayOnly = DateOnly.FromDateTime(DateTime.Today);
+        var meal = await db.Meals.FirstOrDefaultAsync(m => m.UserId == Local.UserId && m.Date == todayOnly && m.Type == _mealType);
+        if (meal is null)
+        {
+            meal = new Meal { UserId = Local.UserId, Date = todayOnly, Type = _mealType };
+            db.Meals.Add(meal);
+            await db.SaveChangesAsync();
+        }
+        db.FoodEntries.Add(new FoodEntry
+        {
+            MealId = meal.Id,
+            Name = _food.Trim(),
+            Calories = _cal,
+            ProteinG = _p,
+            CarbsG = _c,
+            FatG = _f
+        });
+        await db.SaveChangesAsync();
+        _food = ""; _cal = _p = _c = _f = 0;
+        await Load();
+        await DrawCharts();
+    }
+
+    private async Task DeleteFood(int id)
+    {
+        await using var db = await Dbf.CreateDbContextAsync();
+        var fe = await db.FoodEntries.FindAsync(id);
+        if (fe is not null) { db.FoodEntries.Remove(fe); await db.SaveChangesAsync(); }
+        await Load();
+        await DrawCharts();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) await DrawCharts();
+    }
+
+    private async Task DrawCharts()
+    {
+        await JS.InvokeVoidAsync("phCharts.bar", "waterChart", _days7, _water7, "#38bdf8");
+        await JS.InvokeVoidAsync("phCharts.doughnut", "macroChart",
+            new[] { "Protein", "Carbs", "Fat" },
+            new[] { (int)_protein, (int)_carbs, (int)_fat },
+            new[] { "#ef4444", "#3b82f6", "#a855f7" });
+    }
+}

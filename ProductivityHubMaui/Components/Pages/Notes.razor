@@ -1,0 +1,171 @@
+@page "/notes"
+@inject IDbContextFactory<AppDbContext> Dbf
+@inject IJSRuntime JS
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <h1 style="font-size:1.6rem;margin:0"><i class="fa-solid fa-note-sticky"></i> Notes</h1>
+    <button class="btn btn-accent btn-sm" @onclick="NewNote"><i class="fa-solid fa-plus"></i> New note</button>
+</div>
+
+<div class="row g-3">
+    <div class="col-lg-7">
+        <div class="card-ph mb-3">
+            <div class="row g-2">
+                <div class="col-md-7"><input class="form-control" placeholder="Search notes…" @bind="_search" @bind:event="oninput" /></div>
+                <div class="col-md-5">
+                    <select class="form-select" @bind="_filter">
+                        <option value="">All kinds</option>
+                        @foreach (var k in Enum.GetValues<NoteKind>())
+                        { <option value="@k">@k</option> }
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        @if (Filtered.Count == 0)
+        {
+            <div class="card-ph"><p class="muted mb-0">No notes match.</p></div>
+        }
+        else
+        {
+            <div class="note-grid">
+                @foreach (var n in Filtered)
+                {
+                    <div class="note-card @(n.Id == _editId ? "active" : "")" @onclick="() => Edit(n)">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <b>@(string.IsNullOrWhiteSpace(n.Title) ? "Untitled" : n.Title)</b>
+                            <button class="btn btn-sm btn-link p-0" @onclick:stopPropagation="true" @onclick="() => TogglePin(n)">
+                                <i class="@(n.IsPinned ? "fa-solid" : "fa-regular") fa-thumbtack"></i>
+                            </button>
+                        </div>
+                        <div class="small muted">@n.Kind · @n.UpdatedAt.ToString("MMM d")</div>
+                        <div class="small mt-1">@(n.Content.Length > 90 ? n.Content[..90] + "…" : n.Content)</div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="col-lg-5">
+        <div class="card-ph">
+            <h3>@(_editId is null ? "New note" : "Edit note")</h3>
+            <input class="form-control mb-2" placeholder="Title" @bind="_title" />
+            <div class="row g-2 mb-2">
+                <div class="col-6">
+                    <select class="form-select" @bind="_kind">
+                        @foreach (var k in Enum.GetValues<NoteKind>())
+                        { <option value="@k">@k</option> }
+                    </select>
+                </div>
+                <div class="col-6"><input class="form-control" placeholder="Category" @bind="_category" /></div>
+            </div>
+            <textarea class="form-control mb-2" rows="8" placeholder="Markdown supported…"
+                      value="@_content" @oninput="OnContentInput"></textarea>
+            <div class="d-flex gap-2 mb-3">
+                <button class="btn btn-accent" @onclick="Save">Save</button>
+                @if (_editId is not null)
+                {
+                    <button class="btn btn-outline-danger" @onclick="Delete">Delete</button>
+                }
+                <button class="btn btn-outline-secondary" @onclick="NewNote">Clear</button>
+            </div>
+            <h4 class="small muted">Preview</h4>
+            <div class="markdown-preview">@_preview</div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<Note> _notes = [];
+    private string _search = "";
+    private string _filter = "";
+
+    private int? _editId;
+    private string _title = "";
+    private string _content = "";
+    private NoteKind _kind = NoteKind.Quick;
+    private string _category = "General";
+    private MarkupString _preview;
+
+    private List<Note> Filtered => _notes
+        .Where(n => string.IsNullOrEmpty(_filter) || n.Kind.ToString() == _filter)
+        .Where(n => string.IsNullOrWhiteSpace(_search)
+                    || n.Title.Contains(_search, StringComparison.OrdinalIgnoreCase)
+                    || n.Content.Contains(_search, StringComparison.OrdinalIgnoreCase))
+        .OrderByDescending(n => n.IsPinned).ThenByDescending(n => n.UpdatedAt)
+        .ToList();
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        await using var db = await Dbf.CreateDbContextAsync();
+        _notes = await db.Notes.Where(n => n.UserId == Local.UserId).ToListAsync();
+    }
+
+    private void NewNote()
+    {
+        _editId = null; _title = ""; _content = ""; _kind = NoteKind.Quick; _category = "General";
+        _preview = default;
+    }
+
+    private async Task Edit(Note n)
+    {
+        _editId = n.Id; _title = n.Title; _content = n.Content; _kind = n.Kind; _category = n.Category;
+        await RenderPreview();
+    }
+
+    private async Task OnContentInput(ChangeEventArgs e)
+    {
+        _content = e.Value?.ToString() ?? "";
+        await RenderPreview();
+    }
+
+    private async Task RenderPreview()
+    {
+        var html = await JS.InvokeAsync<string>("phMarkdown.render", _content);
+        _preview = new MarkupString(html);
+    }
+
+    private async Task Save()
+    {
+        await using var db = await Dbf.CreateDbContextAsync();
+        Note note;
+        if (_editId is int id)
+        {
+            note = await db.Notes.FindAsync(id) ?? new Note { UserId = Local.UserId };
+            if (note.Id == 0) db.Notes.Add(note);
+        }
+        else
+        {
+            note = new Note { UserId = Local.UserId, CreatedAt = DateTime.UtcNow };
+            db.Notes.Add(note);
+        }
+        note.Title = _title.Trim();
+        note.Content = _content;
+        note.Kind = _kind;
+        note.Category = string.IsNullOrWhiteSpace(_category) ? "General" : _category.Trim();
+        note.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+        _editId = note.Id;
+        await Load();
+    }
+
+    private async Task Delete()
+    {
+        if (_editId is not int id) return;
+        await using var db = await Dbf.CreateDbContextAsync();
+        var note = await db.Notes.FindAsync(id);
+        if (note is not null) { db.Notes.Remove(note); await db.SaveChangesAsync(); }
+        NewNote();
+        await Load();
+    }
+
+    private async Task TogglePin(Note n)
+    {
+        await using var db = await Dbf.CreateDbContextAsync();
+        var note = await db.Notes.FindAsync(n.Id);
+        if (note is not null) { note.IsPinned = !note.IsPinned; await db.SaveChangesAsync(); }
+        await Load();
+    }
+}
