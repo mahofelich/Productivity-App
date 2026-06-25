@@ -1,5 +1,5 @@
 @page "/"
-@inject IDashboardService Dashboard
+@inject IDashboardService DashboardSvc
 @inject IDbContextFactory<AppDbContext> Dbf
 @inject IGamificationService Gamify
 @inject NavigationManager Nav
@@ -135,7 +135,7 @@ else
         var user = await db.Users.FindAsync(Local.UserId);
         if (user is not null && !string.IsNullOrWhiteSpace(user.DisplayName)) _name = user.DisplayName;
 
-        _data = await Dashboard.BuildAsync(Local.UserId);
+        _data = await DashboardSvc.BuildAsync(Local.UserId);
 
         _timer = new System.Threading.Timer(_ =>
         {
@@ -151,7 +151,7 @@ else
         await db.SaveChangesAsync();
         await Gamify.AwardXpAsync(Local.UserId, 5);
         await Gamify.CheckAchievementsAsync(Local.UserId);
-        _data = await Dashboard.BuildAsync(Local.UserId);
+        _data = await DashboardSvc.BuildAsync(Local.UserId);
     }
 
     public void Dispose() => _timer?.Dispose();

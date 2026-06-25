@@ -1,6 +1,6 @@
 @page "/insights"
 @inject IDbContextFactory<AppDbContext> Dbf
-@inject IInsightService Insights
+@inject IInsightService InsightSvc
 @inject IGamificationService Gamify
 
 <h1 style="font-size:1.6rem"><i class="fa-solid fa-wand-magic-sparkles"></i> AI Insights</h1>
@@ -69,7 +69,7 @@
     protected override async Task OnInitializedAsync()
     {
         await Gamify.CheckAchievementsAsync(Local.UserId);
-        _insights = await Insights.FullInsightsAsync(Local.UserId);
+        _insights = await InsightSvc.FullInsightsAsync(Local.UserId);
 
         await using var db = await Dbf.CreateDbContextAsync();
         var user = await db.Users.FindAsync(Local.UserId);
