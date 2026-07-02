@@ -1,6 +1,9 @@
 @namespace ProductivityHub.Components.Layout
 @inherits LayoutComponentBase
+@implements IDisposable
 @inject IJSRuntime JS
+@inject NavigationManager Nav
+@inject IDbContextFactory<AppDbContext> Dbf
 
 <div class="app-shell">
     <aside class="sidebar @(_open ? "open" : "")">
@@ -17,12 +20,9 @@
             <NavLink href="analytics"><i class="fa-solid fa-chart-line"></i><span>Analytics</span></NavLink>
             <NavLink href="insights"><i class="fa-solid fa-wand-magic-sparkles"></i><span>AI Insights</span></NavLink>
             <NavLink href="recommendations"><i class="fa-solid fa-lightbulb"></i><span>For You</span></NavLink>
-            <NavLink href="sync"><i class="fa-solid fa-rotate"></i><span>Sync</span></NavLink>
         </nav>
         <div class="sidebar-footer">
-            <button class="theme-toggle" @onclick="ToggleTheme">
-                <i class="fa-solid fa-circle-half-stroke"></i> Theme
-            </button>
+            <span class="topbar-note"><i class="fa-solid fa-mobile-screen"></i> Local · works offline</span>
         </div>
     </aside>
 
@@ -34,7 +34,27 @@
     <div class="main-area">
         <div class="topbar">
             <button class="hamburger" @onclick="Toggle"><i class="fa-solid fa-bars"></i></button>
-            <div class="topbar-right"><i class="fa-solid fa-mobile-screen"></i> Local · works offline</div>
+            <div class="topbar-right">
+                <div class="popdown">
+                    <button class="icon-btn" title="Theme" @onclick="ToggleThemeMenu">
+                        <i class="fa-solid fa-palette"></i>
+                    </button>
+                    @if (_themeMenuOpen)
+                    {
+                        <div class="popdown-backdrop" @onclick="CloseThemeMenu"></div>
+                        <div class="popdown-panel">
+                            @foreach (var t in ThemeCatalog.All)
+                            {
+                                <button class="popdown-item @(t.Key == _theme ? "active" : "")"
+                                        @onclick="() => SetTheme(t.Key)">
+                                    <span class="swatch" style="background:@t.Accent"></span> @t.Name
+                                </button>
+                            }
+                        </div>
+                    }
+                </div>
+                <button class="profile-btn" title="Settings" @onclick="GoSettings">@_initial</button>
+            </div>
         </div>
         <main class="content">
             @Body
@@ -44,15 +64,49 @@
 
 @code {
     private bool _open;
+    private bool _themeMenuOpen;
+    private string _theme = "dark";
+    private string _initial = "•";
 
     private void Toggle() => _open = !_open;
     private void Close() => _open = false;
 
+    private void ToggleThemeMenu() => _themeMenuOpen = !_themeMenuOpen;
+    private void CloseThemeMenu() => _themeMenuOpen = false;
+
+    private void GoSettings() { _themeMenuOpen = false; Nav.NavigateTo("settings"); }
+
+    protected override async Task OnInitializedAsync()
+    {
+        AppEvents.UserChanged += OnUserChanged;
+        await LoadInitialAsync();
+    }
+
+    private async Task LoadInitialAsync()
+    {
+        await using var db = await Dbf.CreateDbContextAsync();
+        var user = await db.Users.FindAsync(Local.UserId);
+        var name = user?.DisplayName?.Trim();
+        _initial = string.IsNullOrEmpty(name) ? "•" : char.ToUpperInvariant(name[0]).ToString();
+    }
+
+    private void OnUserChanged() => _ = InvokeAsync(async () => { await LoadInitialAsync(); StateHasChanged(); });
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
-            await JS.InvokeVoidAsync("phTheme.init");
+        {
+            _theme = await JS.InvokeAsync<string>("phTheme.init");
+            StateHasChanged();
+        }
     }
 
-    private async Task ToggleTheme() => await JS.InvokeVoidAsync("phTheme.toggle");
+    private async Task SetTheme(string key)
+    {
+        _theme = key;
+        _themeMenuOpen = false;
+        await JS.InvokeVoidAsync("phTheme.set", key);
+    }
+
+    public void Dispose() => AppEvents.UserChanged -= OnUserChanged;
 }

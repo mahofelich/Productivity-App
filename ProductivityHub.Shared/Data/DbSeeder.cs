@@ -32,7 +32,7 @@ public static class DbSeeder
 
         if (!db.Users.Any(u => u.Id == Local.UserId))
         {
-            db.Users.Add(new AppUser { Id = Local.UserId, DisplayName = "You" });
+            db.Users.Add(new AppUser { Id = Local.UserId, DisplayName = "" });
 
             var today = DateTime.Today;
             db.Tasks.AddRange(

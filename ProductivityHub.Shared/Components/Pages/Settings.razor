@@ -1,0 +1,219 @@
+@page "/settings"
+@inject IDbContextFactory<AppDbContext> Dbf
+@inject ISyncService SyncSvc
+@inject IEmailService Mail
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+<h1 style="font-size:1.6rem"><i class="fa-solid fa-gear"></i> Settings</h1>
+
+@* ---------------- Profile ---------------- *@
+<div class="card-ph mb-3">
+    <h3><i class="fa-solid fa-user"></i> Profile</h3>
+    <label class="small muted" for="display-name">Display name — used in the dashboard greeting</label>
+    <div class="row g-2 mt-1">
+        <div class="col-sm-8 col-md-6">
+            <input id="display-name" class="form-control" placeholder="Your name" @bind="_name" />
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-accent" disabled="@_savingName" @onclick="SaveName">
+                @(_savingName ? "Saving…" : "Save")
+            </button>
+        </div>
+    </div>
+    @if (_nameSaved)
+    {
+        <p class="small mt-2 mb-0" style="color:var(--good)"><i class="fa-solid fa-check"></i> Saved.</p>
+    }
+</div>
+
+@* ---------------- Appearance ---------------- *@
+<div class="card-ph mb-3">
+    <h3><i class="fa-solid fa-palette"></i> Appearance</h3>
+    <p class="small muted">Pick a color palette. The choice is remembered on this device.</p>
+    <div class="theme-grid">
+        @foreach (var t in ThemeCatalog.All)
+        {
+            <button class="theme-tile @(t.Key == _theme ? "active" : "")" @onclick="() => SetTheme(t.Key)">
+                <div class="preview" style="background:@t.Bg">
+                    <span class="dot" style="background:@t.Accent"></span>
+                </div>
+                <span class="small">@t.Name</span>
+            </button>
+        }
+    </div>
+</div>
+
+@* ---------------- Cloud sync (Supabase) ---------------- *@
+<div class="card-ph mb-3">
+    <h3><i class="fa-solid fa-rotate"></i> Cloud sync</h3>
+    @if (!SyncSvc.Configured)
+    {
+        <p class="config-status off mb-2"><i class="fa-solid fa-circle-minus"></i> Not set up</p>
+        <p>Cloud sync lets your phone and desktop share data through your own Supabase project. To turn it
+            on, copy <code>Services/SyncConfig.Secrets.cs.example</code> to <code>SyncConfig.Secrets.cs</code>,
+            paste in your project URL, key and sync id, then rebuild. Full steps are in the README under
+            "Cloud sync."</p>
+        <p class="small muted mb-0">Until then, each device keeps its own separate local data.</p>
+    }
+    else
+    {
+        <p class="config-status ok mb-2"><i class="fa-solid fa-circle-check"></i> Configured</p>
+        @if (_checking)
+        {
+            <p class="muted">Checking cloud…</p>
+        }
+        else if (_remoteError is not null)
+        {
+            <p class="text-warning"><i class="fa-solid fa-triangle-exclamation"></i> @_remoteError</p>
+        }
+        else if (_remote is { Exists: true })
+        {
+            <p>Last cloud backup: <b>@(_remote.UpdatedAt?.ToLocalTime().ToString("MMM d, yyyy h:mm tt") ?? "unknown")</b></p>
+        }
+        else
+        {
+            <p class="muted">No cloud backup yet. Tap "Back up now" to create the first one.</p>
+        }
+
+        <div class="d-flex gap-2 flex-wrap">
+            <button class="btn btn-accent" disabled="@_busy" @onclick="Backup">
+                @(_busy && _action == "backup" ? "Backing up…" : "Back up now")
+            </button>
+            <button class="btn btn-outline-danger" disabled="@_busy" @onclick="Restore">
+                @(_busy && _action == "restore" ? "Restoring…" : "Restore from cloud")
+            </button>
+        </div>
+        <p class="small muted mt-2 mb-0">Back up pushes <b>this device's</b> data to the cloud. Restore replaces
+            this device's data with the cloud copy — back up when you finish on one device, restore when you
+            switch to the other.</p>
+
+        @if (_message is not null)
+        {
+            <div class="alert @(_ok ? "alert-success" : "alert-warning") py-2 mt-2 mb-0">@_message</div>
+        }
+    }
+</div>
+
+@* ---------------- Email ---------------- *@
+<div class="card-ph">
+    <h3><i class="fa-solid fa-envelope"></i> Email</h3>
+    @if (!Mail.Configured)
+    {
+        <p class="config-status off mb-2"><i class="fa-solid fa-circle-minus"></i> Not set up</p>
+        <p>The Email tab reads your inbox over IMAP, so any provider works — Gmail, Outlook, Fastmail,
+            iCloud, or self-hosted. To turn it on, copy
+            <code>Services/EmailConfig.Secrets.cs.example</code> to <code>EmailConfig.Secrets.cs</code>,
+            fill in your IMAP host, username and app password, then rebuild.</p>
+        <p class="small muted mb-0">Your credentials live only in that gitignored file on your device.
+            Reading is strictly read-only — nothing is marked read, moved, or deleted on the server.</p>
+    }
+    else
+    {
+        <p class="config-status ok mb-2"><i class="fa-solid fa-circle-check"></i> Configured</p>
+        <p class="mb-2">Reading <b>@EmailConfig.Folder</b> on <b>@EmailConfig.Host</b> as
+            <b>@EmailConfig.Username</b> (@EmailConfig.FetchCount most recent messages).</p>
+        <a class="btn btn-accent btn-sm" href="email"><i class="fa-solid fa-inbox"></i> Open inbox</a>
+        <p class="small muted mt-2 mb-0">To change the account, folder, or message count, edit
+            <code>Services/EmailConfig.Secrets.cs</code> and rebuild.</p>
+    }
+</div>
+
+@code {
+    // Profile
+    private string _name = "";
+    private bool _savingName;
+    private bool _nameSaved;
+
+    // Appearance
+    private string _theme = "dark";
+
+    // Sync (ported from the old /sync page)
+    private RemoteInfo? _remote;
+    private bool _checking = true;
+    private string? _remoteError;
+    private bool _busy;
+    private string? _action;
+    private string? _message;
+    private bool _ok;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await Dbf.CreateDbContextAsync();
+        var user = await db.Users.FindAsync(Local.UserId);
+        _name = user?.DisplayName ?? "";
+        await RefreshSync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _theme = await JS.InvokeAsync<string>("phTheme.get");
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveName()
+    {
+        _savingName = true;
+        _nameSaved = false;
+        try
+        {
+            await using var db = await Dbf.CreateDbContextAsync();
+            var user = await db.Users.FindAsync(Local.UserId);
+            if (user is not null)
+            {
+                user.DisplayName = _name.Trim();
+                await db.SaveChangesAsync();
+                _nameSaved = true;
+                AppEvents.RaiseUserChanged();
+            }
+        }
+        finally { _savingName = false; }
+    }
+
+    private async Task SetTheme(string key)
+    {
+        _theme = key;
+        await JS.InvokeVoidAsync("phTheme.set", key);
+    }
+
+    private async Task RefreshSync()
+    {
+        if (!SyncSvc.Configured) { _checking = false; return; }
+        _checking = true;
+        _remoteError = null;
+        try { _remote = await SyncSvc.GetRemoteInfoAsync(); }
+        catch (Exception ex) { _remoteError = "Couldn't reach the cloud. " + ex.Message; }
+        finally { _checking = false; }
+    }
+
+    private async Task Backup()
+    {
+        _busy = true; _action = "backup"; _message = null;
+        try
+        {
+            await SyncSvc.BackupAsync();
+            _ok = true; _message = "Backed up to the cloud.";
+            await RefreshSync();
+        }
+        catch (Exception ex) { _ok = false; _message = ex.Message; }
+        finally { _busy = false; _action = null; }
+    }
+
+    private async Task Restore()
+    {
+        _busy = true; _action = "restore"; _message = null;
+        try
+        {
+            await SyncSvc.RestoreAsync();
+            _ok = true; _message = "Restored from the cloud. Reloading…";
+            StateHasChanged();
+            await Task.Delay(600);
+            // Reload the app so every page reads the freshly replaced database.
+            Nav.NavigateTo("/", forceLoad: true);
+        }
+        catch (Exception ex) { _ok = false; _message = ex.Message; _busy = false; _action = null; }
+    }
+}
