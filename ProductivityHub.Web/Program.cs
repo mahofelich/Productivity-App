@@ -18,6 +18,7 @@ builder.Services.AddScoped<IInsightService, InsightService>();
 builder.Services.AddScoped<IRecommendationService, RecommendationService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddSingleton<ISyncService, SyncService>();
+builder.Services.AddSingleton<IEmailService, EmailService>();
 
 var app = builder.Build();
 

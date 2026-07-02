@@ -1,0 +1,165 @@
+@page "/email"
+@inject IEmailService Mail
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <h1 style="font-size:1.6rem;margin:0"><i class="fa-solid fa-envelope"></i> Email</h1>
+    @if (Mail.Configured)
+    {
+        <button class="btn btn-accent btn-sm" @onclick="RefreshAsync" disabled="@_loading">
+            <i class="fa-solid fa-rotate"></i> @(_loading ? "Refreshing…" : "Refresh")
+        </button>
+    }
+</div>
+
+@if (!Mail.Configured)
+{
+    <div class="card-ph">
+        <h3>Not set up yet</h3>
+        <p>The Email tab reads your inbox over IMAP, so it works with any provider —
+            Gmail, Outlook, Fastmail, iCloud, or self-hosted. To turn it on, copy
+            <code>Services/EmailConfig.Secrets.cs.example</code> to
+            <code>EmailConfig.Secrets.cs</code>, fill in your IMAP host, username and
+            app password, then rebuild.</p>
+        <p class="small muted mb-0">Your credentials live only in that gitignored file on your device.
+            Reading here is strictly read-only — nothing is marked read, moved, or deleted on the server.</p>
+    </div>
+}
+else
+{
+    @if (_error is not null)
+    {
+        <div class="card-ph mb-3">
+            <p class="text-warning mb-0"><i class="fa-solid fa-triangle-exclamation"></i> @_error</p>
+        </div>
+    }
+
+    <div class="row g-3">
+        <div class="col-lg-5">
+            @if (_loading && _messages is null)
+            {
+                <div class="card-ph"><p class="muted mb-0">Connecting to @EmailConfig.Host…</p></div>
+            }
+            else if (_messages is { Count: 0 })
+            {
+                <div class="card-ph"><p class="muted mb-0">The @EmailConfig.Folder folder is empty.</p></div>
+            }
+            else if (_messages is not null)
+            {
+                <div class="email-list">
+                    @foreach (var m in _messages)
+                    {
+                        <div class="email-row @(m.Uid == _openUid ? "active" : "") @(m.Seen ? "" : "unread")"
+                             @onclick="() => OpenAsync(m.Uid)">
+                            <div class="d-flex justify-content-between align-items-baseline">
+                                <b class="email-from">@m.From</b>
+                                <span class="small muted text-nowrap ms-2">@FormatDate(m.Date)</span>
+                            </div>
+                            <div class="small email-subject">
+                                @if (m.HasAttachments)
+                                { <i class="fa-solid fa-paperclip muted me-1"></i> }
+                                @m.Subject
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <div class="col-lg-7">
+            <div class="card-ph email-reader">
+                @if (_openingUid is not null)
+                {
+                    <p class="muted mb-0">Loading message…</p>
+                }
+                else if (_open is null)
+                {
+                    <p class="muted mb-0">Select a message to read it.</p>
+                }
+                else
+                {
+                    <h3 style="font-size:1.05rem">@_open.Subject</h3>
+                    <div class="small mb-1"><span class="muted">From</span> @_open.From</div>
+                    <div class="small mb-1"><span class="muted">To</span> @_open.To</div>
+                    <div class="small muted mb-3">@_open.Date.ToLocalTime().ToString("dddd, MMM d yyyy · h:mm tt")</div>
+                    <hr style="border-color:var(--border)" />
+                    @if (!string.IsNullOrWhiteSpace(_open.HtmlBody))
+                    {
+                        @* sandbox="" blocks scripts, forms and navigation inside the message *@
+                        <iframe class="email-body-frame" sandbox="" srcdoc="@_open.HtmlBody"></iframe>
+                    }
+                    else if (!string.IsNullOrWhiteSpace(_open.TextBody))
+                    {
+                        <pre class="email-body-text">@_open.TextBody</pre>
+                    }
+                    else
+                    {
+                        <p class="muted mb-0">This message has no readable body.</p>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<EmailSummary>? _messages;
+    private EmailContent? _open;
+    private uint? _openUid;
+    private uint? _openingUid;
+    private bool _loading;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Mail.Configured)
+            await RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        _loading = true;
+        _error = null;
+        StateHasChanged();
+        try
+        {
+            _messages = await Mail.GetRecentAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task OpenAsync(uint uid)
+    {
+        if (_openingUid is not null) return;
+        _openUid = uid;
+        _openingUid = uid;
+        _error = null;
+        StateHasChanged();
+        try
+        {
+            _open = await Mail.GetMessageAsync(uid);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _openingUid = null;
+        }
+    }
+
+    private static string FormatDate(DateTimeOffset d)
+    {
+        var local = d.ToLocalTime();
+        return local.Date == DateTime.Today ? local.ToString("h:mm tt")
+             : local.Year == DateTime.Today.Year ? local.ToString("MMM d")
+             : local.ToString("MMM d, yyyy");
+    }
+}

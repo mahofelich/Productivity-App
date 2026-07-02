@@ -1,3 +1,0 @@
-﻿<Project>
-  <Import Project="../build/ProductivityHub.Maui.props" />
-</Project>

@@ -167,3 +167,20 @@ input.form-control:focus, select.form-select:focus, textarea.form-control:focus 
 .markdown-preview :first-child { margin-top: 0; }
 .markdown-preview :last-child { margin-bottom: 0; }
 .form-control-color { padding: 4px; height: 38px; }
+
+/* ---- Email tab ---- */
+.email-list { display: flex; flex-direction: column; gap: 8px; }
+.email-row {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 10px 14px; cursor: pointer; transition: border-color .15s;
+}
+.email-row:hover { border-color: var(--accent); }
+.email-row.active { border-color: var(--accent); }
+.email-row.unread .email-from, .email-row.unread .email-subject { font-weight: 600; }
+.email-row.unread { border-left: 3px solid var(--accent); }
+.email-from { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.email-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.email-row.unread .email-subject { color: inherit; }
+.email-reader { min-height: 300px; }
+.email-body-frame { width: 100%; min-height: 420px; border: 0; background: #fff; border-radius: 8px; }
+.email-body-text { white-space: pre-wrap; word-break: break-word; font-family: inherit; font-size: .92rem; margin: 0; }
