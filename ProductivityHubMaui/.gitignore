@@ -1,9 +1,0 @@
-bin/
-obj/
-*.db3
-*.user
-.vs/
-.idea/
-*.binlog
-[Aa]rtifacts/
-Resources/Raw/*.db3

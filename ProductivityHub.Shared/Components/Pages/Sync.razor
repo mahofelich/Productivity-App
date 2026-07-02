@@ -1,0 +1,118 @@
+@page "/sync"
+@inject ISyncService SyncSvc
+@inject NavigationManager Nav
+
+<h1 style="font-size:1.6rem"><i class="fa-solid fa-rotate"></i> Sync</h1>
+
+@if (!SyncSvc.Configured)
+{
+    <div class="card-ph">
+        <h3>Not set up yet</h3>
+        <p>Cloud sync lets your phone and desktop share data. To turn it on, open
+            <code>Services/SyncConfig.cs</code> and paste in your Supabase project URL and anon key,
+            then rebuild. Full steps are in the README under "Cloud sync."</p>
+        <p class="small muted mb-0">Until then, each device keeps its own separate local data.</p>
+    </div>
+}
+else
+{
+    <div class="card-ph mb-3">
+        <h3>Cloud status</h3>
+        @if (_checking)
+        {
+            <p class="muted mb-0">Checking cloud…</p>
+        }
+        else if (_remoteError is not null)
+        {
+            <p class="text-warning mb-0"><i class="fa-solid fa-triangle-exclamation"></i> @_remoteError</p>
+        }
+        else if (_remote is { Exists: true })
+        {
+            <p class="mb-0">Last cloud backup: <b>@(_remote.UpdatedAt?.ToLocalTime().ToString("MMM d, yyyy h:mm tt") ?? "unknown")</b></p>
+        }
+        else
+        {
+            <p class="muted mb-0">No cloud backup yet. Tap "Back up now" to create the first one.</p>
+        }
+    </div>
+
+    <div class="card-ph mb-3">
+        <h3>Back up</h3>
+        <p class="small muted">Pushes <b>this device's</b> data to the cloud, replacing the cloud copy.</p>
+        <button class="btn btn-accent" disabled="@_busy" @onclick="Backup">
+            @if (_busy && _action == "backup") { <span>Backing up…</span> } else { <span>Back up now</span> }
+        </button>
+    </div>
+
+    <div class="card-ph mb-3">
+        <h3>Restore</h3>
+        <p class="small muted">Replaces <b>this device's</b> data with the cloud copy. Anything on this device
+            that wasn't backed up will be overwritten.</p>
+        <button class="btn btn-outline-danger" disabled="@_busy" @onclick="Restore">
+            @if (_busy && _action == "restore") { <span>Restoring…</span> } else { <span>Restore from cloud</span> }
+        </button>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="alert @(_ok ? "alert-success" : "alert-warning") py-2">@_message</div>
+    }
+
+    <div class="card-ph">
+        <h4 class="small muted">How to use it</h4>
+        <p class="small mb-0">Back up when you finish on one device, then Restore when you switch to the other.
+            This keeps things simple and predictable: the most recently backed-up copy is the source of truth.
+            (Editing two devices while offline and not syncing in between can overwrite one side — sync between
+            switches to avoid that.)</p>
+    </div>
+}
+
+@code {
+    private RemoteInfo? _remote;
+    private bool _checking = true;
+    private string? _remoteError;
+    private bool _busy;
+    private string? _action;
+    private string? _message;
+    private bool _ok;
+
+    protected override async Task OnInitializedAsync() => await Refresh();
+
+    private async Task Refresh()
+    {
+        if (!SyncSvc.Configured) { _checking = false; return; }
+        _checking = true;
+        _remoteError = null;
+        try { _remote = await SyncSvc.GetRemoteInfoAsync(); }
+        catch (Exception ex) { _remoteError = "Couldn't reach the cloud. " + ex.Message; }
+        finally { _checking = false; }
+    }
+
+    private async Task Backup()
+    {
+        _busy = true; _action = "backup"; _message = null;
+        try
+        {
+            await SyncSvc.BackupAsync();
+            _ok = true; _message = "Backed up to the cloud.";
+            await Refresh();
+        }
+        catch (Exception ex) { _ok = false; _message = ex.Message; }
+        finally { _busy = false; _action = null; }
+    }
+
+    private async Task Restore()
+    {
+        _busy = true; _action = "restore"; _message = null;
+        try
+        {
+            await SyncSvc.RestoreAsync();
+            _ok = true; _message = "Restored from the cloud. Reloading…";
+            StateHasChanged();
+            await Task.Delay(600);
+            // Reload the app so every page reads the freshly replaced database.
+            Nav.NavigateTo("/", forceLoad: true);
+        }
+        catch (Exception ex) { _ok = false; _message = ex.Message; _busy = false; _action = null; }
+    }
+}

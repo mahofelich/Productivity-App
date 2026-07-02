@@ -1,0 +1,77 @@
+is_global = true
+build_property.TargetFramework = net9.0
+build_property.TargetPlatformMinVersion = 
+build_property.UsingMicrosoftNETSdkWeb = 
+build_property.ProjectTypeGuids = 
+build_property.InvariantGlobalization = 
+build_property.PlatformNeutralAssembly = 
+build_property.EnforceExtendedAnalyzerRules = 
+build_property._SupportedPlatformList = Linux,macOS,Windows,browser
+build_property.RootNamespace = ProductivityHub
+build_property.RootNamespace = ProductivityHub
+build_property.ProjectDir = /Users/michael/Desktop/Productivity-App/ProductivityHub.Shared/
+build_property.EnableComHosting = 
+build_property.EnableGeneratedComInterfaceComImportInterop = 
+build_property.RazorLangVersion = 9.0
+build_property.SupportLocalizedComponentNames = 
+build_property.GenerateRazorMetadataSourceChecksumAttributes = 
+build_property.MSBuildProjectDirectory = /Users/michael/Desktop/Productivity-App/ProductivityHub.Shared
+build_property._RazorSourceGeneratorDebug = 
+build_property.EffectiveAnalysisLevelStyle = 9.0
+build_property.EnableCodeStyleSeverity = 
+
+[/Users/michael/Desktop/Productivity-App/ProductivityHub.Shared/Components/Layout/MainLayout.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50cy9MYXlvdXQvTWFpbkxheW91dC5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = 
+
+[/Users/michael/Desktop/Productivity-App/ProductivityHub.Shared/Components/Pages/Analytics.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50cy9QYWdlcy9BbmFseXRpY3MucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[/Users/michael/Desktop/Productivity-App/ProductivityHub.Shared/Components/Pages/Calendar.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50cy9QYWdlcy9DYWxlbmRhci5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = 
+
+[/Users/michael/Desktop/Productivity-App/ProductivityHub.Shared/Components/Pages/Dashboard.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50cy9QYWdlcy9EYXNoYm9hcmQucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[/Users/michael/Desktop/Productivity-App/ProductivityHub.Shared/Components/Pages/Habits.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50cy9QYWdlcy9IYWJpdHMucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[/Users/michael/Desktop/Productivity-App/ProductivityHub.Shared/Components/Pages/Health.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50cy9QYWdlcy9IZWFsdGgucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[/Users/michael/Desktop/Productivity-App/ProductivityHub.Shared/Components/Pages/Insights.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50cy9QYWdlcy9JbnNpZ2h0cy5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = 
+
+[/Users/michael/Desktop/Productivity-App/ProductivityHub.Shared/Components/Pages/Journal.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50cy9QYWdlcy9Kb3VybmFsLnJhem9y
+build_metadata.AdditionalFiles.CssScope = 
+
+[/Users/michael/Desktop/Productivity-App/ProductivityHub.Shared/Components/Pages/Notes.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50cy9QYWdlcy9Ob3Rlcy5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = 
+
+[/Users/michael/Desktop/Productivity-App/ProductivityHub.Shared/Components/Pages/Recommendations.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50cy9QYWdlcy9SZWNvbW1lbmRhdGlvbnMucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[/Users/michael/Desktop/Productivity-App/ProductivityHub.Shared/Components/Pages/Sync.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50cy9QYWdlcy9TeW5jLnJhem9y
+build_metadata.AdditionalFiles.CssScope = 
+
+[/Users/michael/Desktop/Productivity-App/ProductivityHub.Shared/Components/Pages/Tasks.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50cy9QYWdlcy9UYXNrcy5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = 
+
+[/Users/michael/Desktop/Productivity-App/ProductivityHub.Shared/Components/Routes.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50cy9Sb3V0ZXMucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[/Users/michael/Desktop/Productivity-App/ProductivityHub.Shared/Components/_Imports.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50cy9fSW1wb3J0cy5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = 
