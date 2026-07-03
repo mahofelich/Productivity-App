@@ -17,9 +17,7 @@ builder.Services.AddScoped<IGamificationService, GamificationService>();
 builder.Services.AddScoped<IInsightService, InsightService>();
 builder.Services.AddScoped<IRecommendationService, RecommendationService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
-builder.Services.AddSingleton<ISyncService>(_ =>
-    DriveSyncConfig.Configured ? new GoogleDriveSyncService() : new SyncService());
-builder.Services.AddSingleton<IEmailService, EmailService>();
+builder.Services.AddSingleton<ISyncService, SyncService>();
 
 var app = builder.Build();
 

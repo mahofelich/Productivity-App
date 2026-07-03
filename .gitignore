@@ -14,6 +14,7 @@ obj/
 # ---- Local secrets: never commit real credentials ----
 **/SyncConfig.Secrets.cs
 **/EmailConfig.Secrets.cs
+**/DriveSyncConfig.Secrets.cs
 
 # ---- Local database files ----
 *.db3

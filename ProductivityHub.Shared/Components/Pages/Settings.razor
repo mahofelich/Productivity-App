@@ -50,15 +50,20 @@
     @if (!SyncSvc.Configured)
     {
         <p class="config-status off mb-2"><i class="fa-solid fa-circle-minus"></i> Not set up</p>
-        <p>Cloud sync lets your phone and desktop share data through your own Supabase project. To turn it
-            on, copy <code>Services/SyncConfig.Secrets.cs.example</code> to <code>SyncConfig.Secrets.cs</code>,
-            paste in your project URL, key and sync id, then rebuild. Full steps are in the README under
-            "Cloud sync."</p>
-        <p class="small muted mb-0">Until then, each device keeps its own separate local data.</p>
+        <p>Cloud sync lets your phone and desktop share data. Two backends are supported — set up
+            whichever you prefer and rebuild; every device you build from the same config syncs together.</p>
+        <p class="mb-1"><b>Google Drive</b> (recommended): the backup lives in a folder in your own Drive.
+            Copy <code>Services/DriveSyncConfig.Secrets.cs.example</code> to
+            <code>DriveSyncConfig.Secrets.cs</code> and follow the steps in its header — create a Google
+            service account, share a Drive folder with it, paste in three values.</p>
+        <p><b>Supabase</b>: copy <code>Services/SyncConfig.Secrets.cs.example</code> to
+            <code>SyncConfig.Secrets.cs</code> and paste in your project URL, key and sync id.</p>
+        <p class="small muted mb-0">If both are configured, Google Drive is used. Until one is set up,
+            each device keeps its own separate local data.</p>
     }
     else
     {
-        <p class="config-status ok mb-2"><i class="fa-solid fa-circle-check"></i> Configured</p>
+        <p class="config-status ok mb-2"><i class="fa-solid fa-circle-check"></i> Configured — syncing via <b>@SyncSvc.ProviderName</b></p>
         @if (_checking)
         {
             <p class="muted">Checking cloud…</p>
@@ -110,7 +115,7 @@
     }
     else
     {
-        <p class="config-status ok mb-2"><i class="fa-solid fa-circle-check"></i> Configured</p>
+        <p class="config-status ok mb-2"><i class="fa-solid fa-circle-check"></i> Configured — syncing via <b>@SyncSvc.ProviderName</b></p>
         <p class="mb-2">Reading <b>@EmailConfig.Folder</b> on <b>@EmailConfig.Host</b> as
             <b>@EmailConfig.Username</b> (@EmailConfig.FetchCount most recent messages).</p>
         <a class="btn btn-accent btn-sm" href="email"><i class="fa-solid fa-inbox"></i> Open inbox</a>

@@ -10,6 +10,7 @@ public record RemoteInfo(bool Exists, DateTimeOffset? UpdatedAt);
 public interface ISyncService
 {
     bool Configured { get; }
+    string ProviderName { get; }
     Task<RemoteInfo> GetRemoteInfoAsync();
     Task BackupAsync();
     Task RestoreAsync();
@@ -30,6 +31,7 @@ public class SyncService : ISyncService
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(60) };
 
     public bool Configured => SyncConfig.Configured;
+    public string ProviderName => "Supabase";
 
     private string Endpoint => $"{SyncConfig.SupabaseUrl.TrimEnd('/')}/rest/v1/app_state";
 
