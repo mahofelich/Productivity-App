@@ -63,7 +63,7 @@ public class GoogleDriveSyncService : ISyncService
         var existing = await FindBackupAsync()
             ?? throw new Exception("No cloud backup found in the Drive folder yet. Back up from another device first.");
 
-        using var req = await NewRequestAsync(HttpMethod.Get, $"{FilesUrl}/{existing.Value.Id}?alt=media&supportsAllDrives=true");
+        using var req = await NewRequestAsync(HttpMethod.Get, $"{FilesUrl}/{existing.Id}?alt=media&supportsAllDrives=true");
         using var res = await Http.SendAsync(req);
         await EnsureOkAsync(res, "Restore");
         var bytes = await res.Content.ReadAsByteArrayAsync();
